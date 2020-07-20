@@ -39,7 +39,7 @@ func init() {
 	severityToColor = make(map[string]Color)
 	severityToColor["debug"] = BlueFg
 	severityToColor["info"] = GreenFg
-	severityToColor["warning"] = BrownFg
+	severityToColor["warning"] = YellowFg
 	severityToColor["error"] = RedFg
 	severityToColor["dpanic"] = RedFg
 	severityToColor["panic"] = RedFg
@@ -61,7 +61,7 @@ func main() {
 		os.Exit(0)
 	}
 
-	go NewSignaler().forwardAllSignalsToProcessGroup()
+	// go NewSignaler().forwardAllSignalsToProcessGroup()
 
 	processor := &processor{
 		scanner: bufio.NewScanner(os.Stdin),
@@ -98,6 +98,11 @@ func (p *processor) processLine(line string) {
 		return
 	}
 
+	// lotus log bug that adds an extra " at the end
+	if line[len(line)-1] == '"' {
+		line = line[:len(line)-1]
+	}
+
 	var lineData map[string]interface{}
 	err := json.Unmarshal([]byte(line), &lineData)
 	if err != nil {
@@ -123,7 +128,7 @@ func (p *processor) processLine(line string) {
 
 func (p *processor) mightBeJSON(line string) bool {
 	// TODO: Improve optimization when some benchmarks are available
-	return strings.Contains(line, "{")
+	return line[0] == '{'
 }
 
 func (p *processor) maybePrettyPrintLine(line string, lineData map[string]interface{}) (string, error) {
@@ -131,9 +136,9 @@ func (p *processor) maybePrettyPrintLine(line string, lineData map[string]interf
 		return p.maybePrettyPrintZapLine(line, lineData)
 	}
 
-	if lineData["severity"] != nil && (lineData["time"] != nil || lineData["timestamp"] != nil) && lineData["caller"] != nil && lineData["message"] != nil {
-		return p.maybePrettyPrintZapdriverLine(line, lineData)
-	}
+	// if lineData["severity"] != nil && (lineData["time"] != nil || lineData["timestamp"] != nil) && lineData["caller"] != nil && lineData["message"] != nil {
+	// 	return p.maybePrettyPrintZapdriverLine(line, lineData)
+	// }
 
 	return "", errNonZapLine
 }
@@ -145,13 +150,14 @@ func (p *processor) maybePrettyPrintZapLine(line string, lineData map[string]int
 	}
 
 	var buffer bytes.Buffer
-	p.writeHeader(&buffer, logTimestamp, lineData["level"].(string), lineData["caller"].(string), lineData["msg"].(string))
+	p.writeHeader(&buffer, logTimestamp, lineData["level"].(string), lineData["caller"].(string), lineData["msg"].(string), lineData["logger"].(string))
 
 	// Delete standard stuff from data fields
 	delete(lineData, "level")
 	delete(lineData, "ts")
 	delete(lineData, "caller")
 	delete(lineData, "msg")
+	delete(lineData, "logger")
 
 	p.writeJSON(&buffer, lineData)
 
@@ -170,7 +176,16 @@ func tsFieldToTimestamp(input interface{}) (*time.Time, error) {
 		return &timestamp, nil
 
 	case string:
-		timestamp, err := time.Parse(time.RFC3339Nano, v)
+		// "2020-07-15T10:21:11.173+0800" as "2006-01-02T15:04:05Z07:00"
+		lotusLogTimestamp := "2006-01-02T15:04:05.000-0700"
+		lotusRustLogTimestamp := "2006-01-02T15:04:05.000-07:00"
+		timestamp, err := time.Parse(lotusLogTimestamp, v)
+
+		if err != nil {
+			timestamp, err = time.Parse(lotusRustLogTimestamp, v)
+		}
+
+		// timestamp, err := time.Parse(time.RFC3339Nano, v)
 		timestamp = timestamp.Local()
 
 		return &timestamp, err
@@ -179,62 +194,63 @@ func tsFieldToTimestamp(input interface{}) (*time.Time, error) {
 	return &zeroTime, fmt.Errorf("don't know how to turn %t (value %s) into a time.Time object", input, input)
 }
 
-func (p *processor) maybePrettyPrintZapdriverLine(line string, lineData map[string]interface{}) (string, error) {
-	timeField := "time"
-	timeValue := lineData[timeField]
-	if lineData[timeField] == nil {
-		timeField = "timestamp"
-		timeValue = lineData[timeField]
-	}
+// func (p *processor) maybePrettyPrintZapdriverLine(line string, lineData map[string]interface{}) (string, error) {
+// 	timeField := "time"
+// 	timeValue := lineData[timeField]
+// 	if lineData[timeField] == nil {
+// 		timeField = "timestamp"
+// 		timeValue = lineData[timeField]
+// 	}
 
-	var buffer bytes.Buffer
-	parsedTime, err := time.Parse(time.RFC3339, timeValue.(string))
-	if err != nil {
-		return "", fmt.Errorf("unable to process field 'time': %s", err)
-	}
+// 	var buffer bytes.Buffer
+// 	parsedTime, err := time.Parse(time.RFC3339, timeValue.(string))
+// 	if err != nil {
+// 		return "", fmt.Errorf("unable to process field 'time': %s", err)
+// 	}
 
-	p.writeHeader(&buffer, &parsedTime, lineData["severity"].(string), lineData["caller"].(string), lineData["message"].(string))
+// 	p.writeHeader(&buffer, &parsedTime, lineData["severity"].(string), lineData["caller"].(string), lineData["message"].(string))
 
-	// Delete standard stuff from data fields
-	delete(lineData, timeField)
-	delete(lineData, "severity")
-	delete(lineData, "caller")
-	delete(lineData, "message")
-	delete(lineData, "labels")
-	delete(lineData, "logging.googleapis.com/sourceLocation")
+// 	// Delete standard stuff from data fields
+// 	delete(lineData, timeField)
+// 	delete(lineData, "severity")
+// 	delete(lineData, "caller")
+// 	delete(lineData, "message")
+// 	delete(lineData, "labels")
+// 	delete(lineData, "logging.googleapis.com/sourceLocation")
 
-	errorVerbose := ""
-	if t, ok := lineData["errorVerbose"].(string); ok && t != "" {
-		delete(lineData, "errorVerbose")
-		errorVerbose = t
-	}
+// 	errorVerbose := ""
+// 	if t, ok := lineData["errorVerbose"].(string); ok && t != "" {
+// 		delete(lineData, "errorVerbose")
+// 		errorVerbose = t
+// 	}
 
-	stacktrace := ""
-	if t, ok := lineData["stacktrace"].(string); ok && t != "" {
-		delete(lineData, "stacktrace")
-		stacktrace = t
-	}
+// 	stacktrace := ""
+// 	if t, ok := lineData["stacktrace"].(string); ok && t != "" {
+// 		delete(lineData, "stacktrace")
+// 		stacktrace = t
+// 	}
 
-	p.writeJSON(&buffer, lineData)
+// 	p.writeJSON(&buffer, lineData)
 
-	if errorVerbose != "" || stacktrace != "" {
-		p.writeErrorDetails(&buffer, errorVerbose, stacktrace)
-	}
+// 	if errorVerbose != "" || stacktrace != "" {
+// 		p.writeErrorDetails(&buffer, errorVerbose, stacktrace)
+// 	}
 
-	return buffer.String(), nil
-}
+// 	return buffer.String(), nil
+// }
 
-func (p *processor) writeHeader(buffer *bytes.Buffer, timestamp *time.Time, severity string, caller string, message string) {
+func (p *processor) writeHeader(buffer *bytes.Buffer, timestamp *time.Time, severity string, caller string, message string, logger string) {
 	buffer.WriteString(fmt.Sprintf("[%s]", timestamp.Format("2006-01-02 15:04:05.000 MST")))
 
 	buffer.WriteByte(' ')
 	buffer.WriteString(p.colorizeSeverity(severity).String())
 
 	buffer.WriteByte(' ')
+	buffer.WriteString(fmt.Sprintf("[%s]", logger))
 	buffer.WriteString(Gray(12, fmt.Sprintf("(%s)", caller)).String())
 
 	buffer.WriteByte(' ')
-	buffer.WriteString(Blue(message).String())
+	buffer.WriteString(message)
 }
 
 var temporaryStackSpacer = "_-@\\!/@-_"

@@ -1,4 +1,4 @@
-module github.com/maoueh/zap-pretty
+module github.com/hayeah/zap-pretty
 
 require (
 	github.com/logrusorgru/aurora v0.0.0-20200102142835-e9ef32dff381

@@ -61,14 +61,29 @@ func main() {
 		os.Exit(0)
 	}
 
+	var input io.Reader
+	input = os.Stdin
+
+	infile := flag.Arg(0)
+	if infile != "" {
+		f, err := os.Open(infile)
+		if err != nil {
+			log.Fatalln(err)
+		}
+		defer f.Close()
+		input = f
+	}
+
 	// go NewSignaler().forwardAllSignalsToProcessGroup()
 
 	processor := &processor{
-		scanner: bufio.NewScanner(os.Stdin),
+		scanner: bufio.NewScanner(input),
 		output:  os.Stdout,
 	}
 
 	processor.process()
+
+	fmt.Println("")
 }
 
 func printVersion() {

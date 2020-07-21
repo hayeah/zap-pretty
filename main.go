@@ -39,7 +39,7 @@ func init() {
 	severityToColor = make(map[string]Color)
 	severityToColor["debug"] = BlueFg
 	severityToColor["info"] = GreenFg
-	severityToColor["warning"] = YellowFg
+	severityToColor["warn"] = YellowFg
 	severityToColor["error"] = RedFg
 	severityToColor["dpanic"] = RedFg
 	severityToColor["panic"] = RedFg
@@ -143,7 +143,7 @@ func (p *processor) processLine(line string) {
 
 func (p *processor) mightBeJSON(line string) bool {
 	// TODO: Improve optimization when some benchmarks are available
-	return line[0] == '{'
+	return len(line) != 0 && line[0] == '{'
 }
 
 func (p *processor) maybePrettyPrintLine(line string, lineData map[string]interface{}) (string, error) {
